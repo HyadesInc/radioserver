@@ -40,7 +40,7 @@ func main() {
 	var frontend = frontends.CreateAirspyFrontend(0)
 	//var frontend = frontends.CreateLimeSDRFrontend(0)
 	frontend.Init()
-	frontend.SetCenterFrequency(106300000)
+	frontend.SetCenterFrequency(97700000)
 
 	defer frontend.Destroy()
 
@@ -77,8 +77,6 @@ func main() {
 		stop <- true
 	}()
 
-	// frontend.Start()
-	// defer frontend.Stop()
 	runServer(stop)
 	SLog.Info("Closing")
 }

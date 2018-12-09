@@ -54,13 +54,13 @@ func CreatePong(state *ClientState) []uint8 {
 	return append(tools.StructToBytes(header), bodyData...)
 }
 
-func CreateDataPacket(state *ClientState, messageType uint32, samples interface{}) []uint8 {
+func CreateDataPacket(state *ClientState, messageType, streamType uint32, samples interface{}) []uint8 {
 	var bodyData = tools.ArrayToBytes(samples)
 
 	var header = protocol.MessageHeader{
 		ProtocolID:     state.ServerVersion.ToUint32(),
 		MessageType:    messageType,
-		StreamType:     state.CGS.StreamingMode,
+		StreamType:     streamType,
 		SequenceNumber: uint32(state.SentPackets & 0xFFFFFFFF),
 		BodySize:       uint32(len(bodyData)),
 	}

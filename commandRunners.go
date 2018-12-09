@@ -12,8 +12,11 @@ func RunCmdHello(state *StateModels.ClientState) {
 	state.Name = name
 	state.ClientVersion = version
 
+	state.Lock()
+	defer state.Unlock()
+
 	data := StateModels.CreateDeviceInfo(state)
-	if !state.SendData(data) {
+	if !state.SendDataNoIncrement(data) {
 		state.Error("Error sending deviceInfo packet")
 	}
 
@@ -28,12 +31,13 @@ func RunCmdGetSetting(state *StateModels.ClientState) {
 func RunCmdSetSetting(state *StateModels.ClientState) {
 	setting, args := protocol.ParseCmdSetSettingBody(state.CmdBody)
 
+	settingName := protocol.SettingNames[setting]
+
 	if !protocol.IsSettingPossible(setting) {
-		state.Error("Invalid Setting %d", setting)
+		state.Error("Invalid Setting [%s] => (%d)", settingName, setting)
 		return
 	}
 
-	settingName := protocol.SettingNames[setting]
 	state.Debug("Set Setting: %s => %d", settingName, args)
 
 	currentStreaming := state.CGS.Streaming
@@ -41,6 +45,9 @@ func RunCmdSetSetting(state *StateModels.ClientState) {
 	if !state.SetSetting(setting, args) {
 		return
 	}
+
+	state.Lock()
+	defer state.Unlock()
 
 	if currentStreaming || currentStreaming != state.CGS.Streaming {
 		state.CG.UpdateSettings(state)
@@ -56,6 +63,9 @@ func RunCmdPing(state *StateModels.ClientState) {
 	timestamp := protocol.ParseCmdPingBody(state.CmdBody)
 	delta := float64(time.Now().UnixNano()-timestamp) / 1e6
 	state.Debug("Received PING %.2f ms", delta)
+
+	state.Lock()
+	defer state.Unlock()
 
 	state.LastPingTime = timestamp
 	state.SendPong()

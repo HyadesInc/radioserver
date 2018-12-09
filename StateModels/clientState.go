@@ -137,9 +137,6 @@ func (state *ClientState) FullStop() {
 }
 
 func (state *ClientState) SendData(buffer []uint8) bool {
-	state.Lock()
-	defer state.Unlock()
-
 	n, err := state.Conn.Write(buffer)
 	if err != nil {
 		errMsg := err.Error()
@@ -158,23 +155,76 @@ func (state *ClientState) SendData(buffer []uint8) bool {
 	return true
 }
 
+func (state *ClientState) SendDataNoIncrement(buffer []uint8) bool {
+	n, err := state.Conn.Write(buffer)
+	if err != nil {
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, "closed") && !strings.Contains(errMsg, "broken pipe") {
+			state.LogInstance.Error("Error sending data: %s", err)
+		}
+		return false
+	}
+
+	if n > 0 {
+		state.SentBytes += uint64(n)
+	}
+
+	return true
+}
+
 func (state *ClientState) onFFT(samples []float32) {
 	var samplesToSend interface{}
 	var msgType uint32
 
-	switch state.CGS.IQFormat {
-	// TODO: DInt4
+	switch state.CGS.FFTFormat {
 	case protocol.StreamFormatUint8:
-		samplesToSend = tools.Float32ToUInt8(samples)
+		samplesToSend = state.onFFT8(samples)
 		msgType = protocol.MsgTypeUint8FFT
+	case protocol.StreamFormatDint4:
+		samplesToSend = state.onFFT4(samples)
+		msgType = protocol.MsgTypeDint4FFT
 	default:
 		samplesToSend = nil
 	}
 
+	state.Lock()
+	defer state.Unlock()
+
 	if samplesToSend != nil {
-		var data = CreateDataPacket(state, msgType, samplesToSend)
-		state.SendData(data)
+		var data = CreateDataPacket(state, msgType, protocol.StreamTypeFFT, samplesToSend)
+		state.SendDataNoIncrement(data)
 	}
+}
+
+func (state *ClientState) onFFT8(samples []float32) []uint8 {
+	var data = make([]uint8, len(samples))
+	var offset = float32(state.CGS.FFTDBOffset)
+	var scale = 256 / float32(state.CGS.FFTDBRange)
+	var scaledV float32
+
+	// offset         -> uint8(0)
+	// offset - range -> uint8(255)
+
+	var l = len(samples)
+
+	for i, v := range samples {
+		// FFT is symmetric
+		var oI = (i + l/2) % l
+		// uint8 = 256
+		scaledV = 255 + ((v - offset) * scale)
+		if scaledV < 0 {
+			scaledV = 0
+		} else if scaledV > 255 {
+			scaledV = 255
+		}
+		data[oI] = uint8(scaledV)
+	}
+	return data
+}
+
+func (state *ClientState) onFFT4(samples []float32) []uint8 {
+	// TODO: DInt4
+	return nil
 }
 
 func (state *ClientState) onIQ(samples []complex64) {
@@ -201,12 +251,15 @@ func (state *ClientState) onIQ(samples []complex64) {
 }
 
 func (state *ClientState) SendIQ(samples interface{}, messageType uint32) {
+	state.Lock()
+	defer state.Unlock()
+
 	var bodyData = tools.ArrayToBytes(samples)
 
 	var header = protocol.MessageHeader{
 		ProtocolID:     state.ServerVersion.ToUint32(),
 		MessageType:    messageType,
-		StreamType:     state.CGS.StreamingMode,
+		StreamType:     protocol.StreamTypeIQ,
 		SequenceNumber: uint32(state.SentPackets & 0xFFFFFFFF),
 		BodySize:       uint32(len(bodyData)),
 	}
@@ -246,7 +299,7 @@ func (state *ClientState) updateSync() {
 func (state *ClientState) SendSync() {
 	state.updateSync()
 	data := CreateClientSync(state)
-	if !state.SendData(data) {
+	if !state.SendDataNoIncrement(data) {
 		state.Error("Error sending syncInfo packet")
 	}
 }
